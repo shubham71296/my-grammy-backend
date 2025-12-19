@@ -75,6 +75,8 @@ router.post("/multipart/complete", async (req, res) => {
       UploadId: uploadId,
       MultipartUpload: { Parts: parts.map((p) => ({ ETag: p.ETag, PartNumber: p.PartNumber })) },
     });
+
+    const resp = await s3.send(completeCmd);
     
     const folder = key.split("/")[0];
     const publicObject = isPublicFolder(folder);
