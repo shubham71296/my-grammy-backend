@@ -7,13 +7,13 @@ const connectDB = require('./config/db');
 connectDB();
 
 async function createAdmin() {
-  const password = "Shubham@123";
+  const password = "Grammy@1234";
   const hashedPass = await bcrypt.hash(password, 10);
 
   await UserModel.create({
-    first_name: "Shubham",
-    last_name: "patidar",
-    em: "shubham@gmail.com",
+    first_name: "Grammy",
+    last_name: "Music",
+    em: "grammymusicindia@gmail.com",
     pwd: hashedPass,
     role: "admin"
   });
