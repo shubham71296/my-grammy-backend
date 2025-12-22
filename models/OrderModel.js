@@ -16,8 +16,16 @@ const OrderSchema = new mongoose.Schema({
 
   amount: Number,
   currency: { type: String, default: "INR" },
-  stripeSessionId: String,
-  paymentStatus: { type: String, enum: ["pending", "paid", "failed"], default: "pending" }
+  paymentGateway: {
+    type: String,
+    enum: ["razorpay"],
+    default: "razorpay",
+  },
+
+  razorpayOrderId: String,
+  razorpayPaymentId: String,
+  razorpaySignature: String,
+  paymentStatus: { type: String, enum: ["pending", "paid", "cancelled", "failed"], default: "pending" }
 }, { timestamps: true });
 
 module.exports = mongoose.model("orders", OrderSchema);

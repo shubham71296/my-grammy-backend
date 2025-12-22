@@ -6,13 +6,10 @@ const UserModel = require("../../../models/UserModel");
 const OrderModel = require("../../../models/OrderModel");
 const CourseMasterModel = require("../../../models/CourseMasterModel");
 const LectureModel = require("../../../models/LectureModel");
-const DemoInstrumentModel = require("../../../models/DemoInstrumentModel");
 const { uploadBase64File } = require("../../../utils/s3Upload");
 const { PutObjectCommand, DeleteObjectCommand } = require("@aws-sdk/client-s3");
 const s3 = require("../../../config/aws");
 const { randomUUID } = require("crypto");
-const Stripe = require('stripe');
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 const getAllUsers = async (req, res) => {
   try {
@@ -130,7 +127,6 @@ const GetAllUserOrders = async (req, res) => {
     });
   }
 };
-
 
 
 module.exports = {

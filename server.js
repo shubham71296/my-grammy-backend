@@ -8,8 +8,6 @@ const connectDB = require('./config/db');
 const app = express();
 
 
-
-
 app.use(cors({
     origin: '*',
     optionsSuccessStatus: 200,
@@ -17,9 +15,11 @@ app.use(cors({
     credentials: true
 }));
 
-app.use('/webhook', 
-  express.raw({ type: 'application/json' }), 
-  require('./routes/webhook')
+
+app.use(
+  "/webhook",
+  express.raw({ type: "application/json" }),
+  require("./routes/razorpayWebhook")
 );
 
 app.use(express.urlencoded({ extended: true }));
@@ -28,7 +28,6 @@ app.use(express.raw({ type: 'application/octet-stream', limit: '100mb' }));
 
 app.use('/api', require('./routes'));
 
-//mongoose.connect("mongodb://localhost:27017/musically", {});
 connectDB();
 
 app.listen(process.env.PORT, () => console.log(`Server is running on ${process.env.PORT}`));

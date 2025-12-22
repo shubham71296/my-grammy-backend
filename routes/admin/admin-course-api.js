@@ -6,7 +6,7 @@ const auth = require('../../middleware/auth');
 
 
 router.post('/checkcoursetitle', auth, AdminCourseCtrl.CheckCourseTitle);
-router.post('/createcourse',auth, AdminCourseCtrl.CreateCourse);  //UpdateCourse
+router.post('/createcourse',auth, AdminCourseCtrl.CreateCourse);  
 router.post('/updatecourse/:id',auth, AdminCourseCtrl.UpdateCourse);
 router.delete("/deletecourse/:id",auth, AdminCourseCtrl.DeleteCourse);
 

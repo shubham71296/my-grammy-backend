@@ -5,45 +5,11 @@ const InstrumentModel = require("../../../models/InstrumentModel");
 const CourseMasterModel = require("../../../models/CourseMasterModel");
 const LectureModel = require("../../../models/LectureModel");
 const OrderModel = require("../../../models/OrderModel");
-const DemoInstrumentModel = require("../../../models/DemoInstrumentModel");
 const { uploadBase64File } = require("../../../utils/s3Upload");
 const { PutObjectCommand, DeleteObjectCommand } = require("@aws-sdk/client-s3");
 const s3 = require("../../../config/aws");
 const { randomUUID } = require("crypto");
-const Stripe = require('stripe');
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
-
-
-// const CheckCourseTitle = async (req, res) => {
-//   try {
-//      const { course_title } = req.body;
- 
-//      const existingCourseTitle = await CourseMasterModel.findOne({
-//       course_title: course_title.trim(),
-//     }).lean();
- 
-//      if (existingCourseTitle) {
-//        return res.status(400).json({ error: "", success: false, msg: "Course title already exists", data: [] });
-//      }
-
-//      return res.status(200).json({
-//        error: "",
-//        msg: "Course available",
-//        success: true,
-//        data: [],
-//      });
-
-//    } catch (err) {
-//      console.log("error", err);
-//     return res.status(500).json({
-//        error: "internal server error",
-//        msg: "Course added failed",
-//        success: false,
-//        data: [],
-//      });
-//    }
-// };
 
 const CheckCourseTitle = async (req, res) => {
   try {
@@ -102,7 +68,6 @@ const CheckCourseTitle = async (req, res) => {
 
 const CreateCourse = async (req, res) => {
   try {
-    let product = null;
     const { instrument, course_title, course_description, course_price, thumbnail_image } = req.body;
     const existingCourseTitle = await CourseMasterModel.findOne({
       course_title: course_title.trim(),
@@ -116,27 +81,13 @@ const CreateCourse = async (req, res) => {
     if (Number.isNaN(priceNum) || priceNum < 0) {
       return res.status(400).json({ error: "", success: false, msg: "Invalid course price", data: [] });
     }
-
-    product = await stripe.products.create({
-      name: course_title,
-      description: course_description || "",
-      images: thumbnail_image.filter(Boolean).map(i => i.url).slice(0, 8)
-    });
-
-    const price = await stripe.prices.create({
-      product: product.id,
-      unit_amount: Math.round(priceNum * 100), // Stripe uses cents
-      currency: "inr"
-    });
-    
+ 
     const createCourse = await CourseMasterModel.create({
       instrument,
       course_title,
-      course_price,
+      course_price: priceNum,
       course_description,
-      thumbnail_image,
-      stripeProductId: product.id,
-      stripePriceId: price.id,
+      thumbnail_image
     });
 
     res.status(200).json({
@@ -147,13 +98,6 @@ const CreateCourse = async (req, res) => {
     });
   } catch (err) {
     console.error("AddCourseMaster error:", err);
-    if (product?.id) {
-      try {
-        await stripe.products.del(product.id);
-      } catch (cleanupErr) {
-        console.error("Stripe cleanup failed:", cleanupErr);
-      }
-    }
     res.status(500).json({
       error: "internal server error",
       success: false,
@@ -162,6 +106,7 @@ const CreateCourse = async (req, res) => {
     });
   }
 };
+
 const getAllCourses = async (req, res) => {
   try {
     const { query = {}, projection = { pwd: 0 }, options } = { ...req.body };
@@ -355,96 +300,21 @@ const UpdateCourse = async (req, res) => {
     }
 
     const finalImages = [...existing_images, ...new_images];
+    const updatePayload = {
+      thumbnail_image: finalImages,
+    };
+    if (course_title !== undefined)
+      updatePayload.course_title = course_title.trim();
+    if (course_description !== undefined)
+      updatePayload.course_description = course_description;
+    if (course_price !== undefined)
+      updatePayload.course_price = Number(course_price);
 
-    //////////////////////
-     let stripeProductIdToSave = existingData.stripeProductId || null;
-     let stripePriceIdToSave = existingData.stripePriceId || null;
-
-    const priceChanged =
-      course_price !== undefined &&
-      Number(course_price) !== Number(existingData.course_price);
-
-     if (process.env.STRIPE_SECRET_KEY && priceChanged) {
-         const priceNum = Number(course_price);
-       if (Number.isNaN(priceNum) || priceNum < 0) {
-          return res.status(400).json({
-            error: "",
-            success: false,
-            msg: "Invalid course price",
-            data: [],
-          });
-        }
-
-         if (existingData.stripeProductId) {
-          const newPrice = await stripe.prices.create({
-            product: existingData.stripeProductId,
-            unit_amount: Math.round(priceNum * 100),
-            currency: "inr",
-          });
-          stripePriceIdToSave = newPrice.id;
-          createdStripePriceId = newPrice.id;
-        }
-
-        else {
-          const productPayload = {
-            name: course_title || existingData.course_title,
-            description:
-              course_description || existingData.course_description || "",
-          };
-
-          if (finalImages.length) {
-            productPayload.images = finalImages
-              .map((i) => i.url)
-              .filter(Boolean)
-              .slice(0, 8);
-          }
-
-          const createdProduct = await stripe.products.create(productPayload);
-          createdStripeProductId = createdProduct.id;
-          stripeProductIdToSave = createdProduct.id;
-
-          const newPrice = await stripe.prices.create({
-            product: createdProduct.id,
-            unit_amount: Math.round(priceNum * 100),
-            currency: "inr",
-          });
-          stripePriceIdToSave = newPrice.id;
-          createdStripePriceId = newPrice.id;
-        }
-      }
-     
-
-      const updatePayload = {
-        thumbnail_image: finalImages,
-      };
-      if (course_title !== undefined)
-        updatePayload.course_title = course_title.trim();
-      if (course_description !== undefined)
-        updatePayload.course_description = course_description;
-      if (course_price !== undefined)
-        updatePayload.course_price = Number(course_price);
-      if (stripeProductIdToSave)
-        updatePayload.stripeProductId = stripeProductIdToSave;
-      if (stripePriceIdToSave)
-        updatePayload.stripePriceId = stripePriceIdToSave;
-
-      const updatedCourse = await CourseMasterModel.findByIdAndUpdate(
-        courseId,
-        updatePayload,
-        { new: true }
-      );
-
-
-    // const updatedCourse = await CourseMasterModel.findByIdAndUpdate(
-    //   courseId,
-    //   {
-    //     course_title,
-    //     course_description,
-    //     course_price,
-    //     thumbnail_image: finalImages,
-    //   },
-    //   { new: true }
-    // );
+    const updatedCourse = await CourseMasterModel.findByIdAndUpdate(
+      courseId,
+      updatePayload,
+      { new: true }
+    );
 
     res.status(200).json({
       error: "",
@@ -455,11 +325,6 @@ const UpdateCourse = async (req, res) => {
   
   } catch (err) {
     console.log("error", err);
-    try {
-      if (createdStripeProductId) {
-        await stripe.products.del(createdStripeProductId);
-      }
-    } catch {}
 
     res.status(500).json({
       error: "internal server error",
@@ -469,9 +334,9 @@ const UpdateCourse = async (req, res) => {
     });
   }
 };
+
 const DeleteCourse = async (req, res) => {
   try {
-    const warnings = [];
     const courseId = req.params.id;
 
     const course = await CourseMasterModel.findById(courseId).lean();
@@ -532,123 +397,16 @@ const DeleteCourse = async (req, res) => {
         }
       }
     }
+    
+   await LectureModel.deleteMany({ course: courseId });
+   await CourseMasterModel.findByIdAndDelete(courseId);
 
-   
-
-    const stripeProductId =
-      course.stripeProductId || course.stripe_product_id || null;
-
-    if (stripe && stripeProductId) {
-      try {
-        const prices = [];
-        const listParams = { product: stripeProductId, limit: 100 };
-
-        try {
-          for await (const p of stripe.prices
-            .list(listParams)
-            .autoPagingIterator()) {
-            prices.push(p);
-          }
-        } catch (iterErr) {
-          console.warn("⚠ Failed to iterate stripe prices:", iterErr);
-          warnings.push(`Failed to list Stripe prices for ${stripeProductId}`);
-        }
-
-        // Deactivate prices
-        for (const p of prices) {
-          if (p?.active) {
-            try {
-              await stripe.prices.update(p.id, { active: false });
-              console.log("Deactivated Stripe price:", p.id);
-            } catch (priceErr) {
-              console.warn("⚠ Failed to deactivate price:", p.id, priceErr);
-              warnings.push(`Failed to deactivate Stripe price ${p.id}`);
-            }
-          }
-        }
-
-        // Delete product
-        try {
-          await stripe.products.del(stripeProductId);
-          console.log("Deleted Stripe product:", stripeProductId);
-        } catch (delErr) {
-          console.warn(
-            "⚠ Stripe product delete failed:",
-            stripeProductId,
-            delErr
-          );
-          warnings.push(
-            `Stripe product deletion failed for ${stripeProductId}`
-          );
-
-          // fallback → mark inactive
-          try {
-            await stripe.products.update(stripeProductId, { active: false });
-            console.log("Marked Stripe product inactive:", stripeProductId);
-            warnings.push(
-              `Stripe product ${stripeProductId} set to inactive`
-            );
-          } catch (updateErr) {
-            console.error(
-              "⚠ Failed to deactivate Stripe product:",
-              stripeProductId,
-              updateErr
-            );
-            warnings.push(
-              `Failed to deactivate Stripe product ${stripeProductId}`
-            );
-          }
-        }
-      } catch (stripeErr) {
-        console.error("⚠ Stripe cleanup error:", stripeErr);
-        warnings.push(
-          `Stripe cleanup failed for product ${stripeProductId}`
-        );
-      }
-    }
-
-    try {
-      await LectureModel.deleteMany({ course: courseId });
-      await CourseMasterModel.findByIdAndDelete(courseId);
-    } catch (dbErr) {
-      console.error("⚠ Failed to delete course from DB:", dbErr);
-      return res.status(500).json({
-        error: "Failed to delete course from DB",
-        success: false,
-        msg: "Course deletion failed",
-        data: [],
-        warnings,
-      });
-    }
-
-    /* =======================
-       5️⃣ Final Response
-    ======================= */
-    const payload = {
+    return res.status(200).json({
       error: "",
       success: true,
       msg: "Course deleted successfully",
       data: [],
-    };
-
-    if (warnings.length) payload.warnings = warnings;
-
-    return res.status(200).json(payload);
-
-
-
-
-
-   
-  //   await LectureModel.deleteMany({ course: courseId });
-  //  await CourseMasterModel.findByIdAndDelete(courseId);
-
-  //   return res.status(200).json({
-  //     error: "",
-  //     success: true,
-  //     msg: "Course deleted successfully",
-  //     data: [],
-  //   });
+    });
 
   } catch (err) {
     console.log("Error deleting course:", err);
@@ -663,8 +421,6 @@ const DeleteCourse = async (req, res) => {
 
 const AddLecture = async (req, res) => {
   try {
-    // console.log("req.body",req.body)
-    // console.log("req.files",req.files)
     const { course_id, lecture_title, lecture_video } = req.body;
 
     const existingLectureTitle = await LectureModel.findOne({
@@ -789,6 +545,7 @@ const UpdateLecture = async (req, res) => {
     });
   }
 };
+
 const DeleteLecture = async (req, res) => {
   try {
     const lectureId = req.params.id;

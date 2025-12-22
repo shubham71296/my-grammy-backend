@@ -9,8 +9,10 @@ const UserSchema = new mongoose.Schema(
     address: { type: String },
     role: { type: String, default: "user" },
     pwd: { type: String },
+    reset_pwd_otp: { type: String },
     reset_password_token: String,       
-    reset_password_expires: Date
+    reset_password_expires: Date,
+    is_otp_verified: { type: Boolean }
   },
   { timestamps: true }
 );

@@ -1,69 +1,8 @@
-
-
 const OrderModel = require("../../../models/OrderModel");
 const CartModel = require("../../../models/CartModel");
 const InstrumentModel = require("../../../models/InstrumentModel");
 const CourseMasterModel = require("../../../models/CourseMasterModel");
 const { randomUUID } = require("crypto");
-
-// const AddToCart = async (req, res) => {
-//   try {
-//     console.log("req.user", req.user);
-//     const userId = req.user.id;
-//     const { productId, productType } = req.body;
-
-//     if (!["instrument", "course"].includes(productType)) {
-//       return res.status(400).json({ message: "Invalid product type" });
-//     }
-//     let product;
-//     if (productType === "instrument") {
-//       product = await InstrumentModel.findById(productId);
-//     } else {
-//       product = await CourseMasterModel.findById(productId);
-//     }
-
-//     if (!product) {
-//       return res.status(404).json({ message: "Product not found" });
-//     }
-
-//     const price = product.instrument_price || product.course_price;
-
-//     let cart = await CartModel.findOne({ user: userId });
-//     if (!cart) {
-//       cart = new CartModel({ user: userId, items: [] });
-//     }
-
-//     const existing = cart.items.find(
-//       (item) =>
-//         item.productId.toString() === productId &&
-//         item.productType === productType
-//     );
-
-//     if (existing) {
-//       existing.quantity += 1;
-//     } else {
-//       cart.items.push({
-//         productId,
-//         productType,
-//         quantity: 1,
-//         price: price,
-//       });
-//     }
-
-//     await cart.save();
-//     return res.status(200).json({ error: "", msg: "Added to cart", success: true, data: cart });
-//   } catch (err) {
-//     console.log("error", err);
-//     res.status(500).json({
-//       error: "internal server error",
-//       msg: "Failed to add cart",
-//       success: false,
-//       data: [],
-//     });
-//   }
-// };
-
-// exports.getCart = async (req, res) => {
 
 const getCoursesByInstrument = async (instrumentId) => {
   return CourseMasterModel.find(
@@ -76,8 +15,6 @@ const AddToCart = async (req, res) => {
   try {
     const userId = req.user.id;
     const { productId, productType } = req.body;
-
-    // FIX 1: productType must match schema enum
 
     const purchasedCourseIds = await OrderModel.distinct("items.productId", {
       userId,
@@ -100,7 +37,6 @@ const AddToCart = async (req, res) => {
         data: [],
       });
 
-    // Load product
     let product;
     if (mappedType === "instruments") {
       product = await InstrumentModel.findById(productId);
@@ -116,14 +52,10 @@ const AddToCart = async (req, res) => {
         data: [],
       });
 
-    // FIX 2: follow your schema fields
-    // let price = product.instrument_price || product.course_price;
-    //const title = product.instrument_title || product.course_title;
-
     let thumbnail = [];
 
     if (mappedType === "instruments" && product.instrument_images?.length > 0) {
-      const img = product.instrument_images[0]; // first image
+      const img = product.instrument_images[0];
       thumbnail = [
         {
           key: img.key,
@@ -150,7 +82,7 @@ const AddToCart = async (req, res) => {
         },
       ];
     }
-    // FIX 3: match your schema: userId, not user
+
     let cart = await CartModel.findOne({ userId });
 
     if (!cart) {
@@ -164,18 +96,26 @@ const AddToCart = async (req, res) => {
           i.productType === "instruments"
       );
 
-      if (!instrumentExists) {
-        cart.items.push({
-          productId,
-          productType: "instruments",
-          title: product.instrument_title,
-          price: product.instrument_price,
-          thumbnail,
-          qty: 1,
+      if (instrumentExists) {
+        return res.status(400).json({
+          error: "",
+          success: false,
+          msg: "Instrument already in cart",
+          data: cart,
         });
       }
 
-      /* 🔥 AUTO-ADD FREE COURSES */
+      // if (!instrumentExists) {
+      cart.items.push({
+        productId,
+        productType: "instruments",
+        title: product.instrument_title,
+        price: product.instrument_price,
+        thumbnail,
+        qty: 1,
+      });
+      // }
+
       const courses = await getCoursesByInstrument(productId);
 
       courses.forEach((course) => {
@@ -183,7 +123,9 @@ const AddToCart = async (req, res) => {
           return;
         }
         const exists = cart.items.find(
-          (i) => i.productType === "course_masters" && i.productId.toString() === course._id.toString()
+          (i) =>
+            i.productType === "course_masters" &&
+            i.productId.toString() === course._id.toString()
         );
 
         if (exists) {
@@ -193,24 +135,21 @@ const AddToCart = async (req, res) => {
         }
 
         // if (!exists) {
-          cart.items.push({
-            productId: course._id,
-            productType: "course_masters",
-            title: course.course_title,
-            price: 0,
-            thumbnail: course.thumbnail_image?.length
-              ? [{ ...course.thumbnail_image[0] }]
-              : [],
-            qty: 1,
-            accessReason: "FREE_WITH_INSTRUMENT",
-          });
-       // }
+        cart.items.push({
+          productId: course._id,
+          productType: "course_masters",
+          title: course.course_title,
+          price: 0,
+          thumbnail: course.thumbnail_image?.length
+            ? [{ ...course.thumbnail_image[0] }]
+            : [],
+          qty: 1,
+          accessReason: "FREE_WITH_INSTRUMENT",
+        });
+        // }
       });
     }
 
-    /* ==================================================
-       2️⃣ ADD COURSE
-    ================================================== */
     if (mappedType === "course_masters") {
       const alreadyHasInstrument = cart.items.find(
         (i) =>
@@ -246,25 +185,6 @@ const AddToCart = async (req, res) => {
       });
     }
 
-    // const existing = cart.items.find(
-    //   (item) =>
-    //     item.productId.toString() === productId &&
-    //     item.productType === mappedType
-    // );
-
-    // if (existing) {
-    //   existing.qty += 1;
-    // } else {
-    //   cart.items.push({
-    //     productId,
-    //     productType: mappedType,
-    //     title,
-    //     price,
-    //     thumbnail,
-    //     qty: 1,
-    //   });
-    // }
-
     await cart.save();
 
     return res.status(200).json({
@@ -290,7 +210,6 @@ const GetFromCart = async (req, res) => {
 
     const cart = await CartModel.findOne({ userId }).populate({
       path: "items.productId",
-      // dynamic ref path is already defined in schema
       select:
         "instrument_title instrument_price instrument_image course_title course_price course_thumbnail",
     });
@@ -376,7 +295,6 @@ const DecreaseCartQuantity = async (req, res) => {
     const userId = req.user.id;
     const { productId, productType } = req.body;
 
-    // Find the user's cart
     const cart = await CartModel.findOne({ userId });
     if (!cart) {
       return res.status(404).json({
@@ -387,7 +305,6 @@ const DecreaseCartQuantity = async (req, res) => {
       });
     }
 
-    // Find the item in the cart
     const item = cart.items.find(
       (i) =>
         i.productId.toString() === productId && i.productType === productType
@@ -402,11 +319,9 @@ const DecreaseCartQuantity = async (req, res) => {
       });
     }
 
-    // Decrease quantity but not below 1
     if (item.qty > 1) {
       item.qty -= 1;
     } else {
-      // Optional: remove item if qty reaches 0
       cart.items = cart.items.filter(
         (i) =>
           !(
@@ -435,58 +350,6 @@ const DecreaseCartQuantity = async (req, res) => {
   }
 };
 
-// const RemoveFromCart = async (req, res) => {
-//   try {
-//     const userId = req.user.id;
-//     const { productId, productType } = req.body;
-
-//     if (!productId || !productType) {
-//       return res.status(400).json({
-//         error: "",
-//         success: false,
-//         msg: "Product ID and Product Type are required",
-//         data: [],
-//       });
-//     }
-
-//     const cart = await CartModel.findOne({ userId: req.user.id });
-
-//     if (!cart) {
-//       return res.status(404).json({
-//         error: "",
-//         success: false,
-//         msg: "Cart not found",
-//         data: [],
-//       });
-//     }
-
-//     // Filter out the item to remove
-//     cart.items = cart.items.filter(
-//       (item) =>
-//         !(
-//           item.productId.toString() === productId.toString() &&
-//           item.productType === productType
-//         )
-//     );
-
-//     await cart.save();
-
-//     return res.status(200).json({
-//       error: "",
-//       success: true,
-//       msg: "Item removed from cart",
-//       data: cart,
-//     });
-//   } catch (err) {
-//     console.error("Error removing item:", err);
-//     return res.status(500).json({
-//       error: "internal server error",
-//       success: false,
-//       msg: "Internal server error",
-//       data: [],
-//     });
-//   }
-// };
 const RemoveFromCart = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -507,28 +370,17 @@ const RemoveFromCart = async (req, res) => {
       });
     }
 
-    // ===============================
-    // 🧠 CASE 1: Remove Instrument
-    // ===============================
     if (productType === "instruments") {
       cart.items = cart.items.filter(
         (item) =>
           !(
-            // remove instrument itself
             (item.productType === "instruments" &&
               item.productId.toString() === productId.toString()) ||
-
-            // remove ALL free courses
             (item.productType === "course_masters" &&
               item.accessReason === "FREE_WITH_INSTRUMENT")
           )
       );
-    }
-
-    // ===============================
-    // 🧠 CASE 2: Remove Course only
-    // ===============================
-    else {
+    } else {
       cart.items = cart.items.filter(
         (item) =>
           !(
@@ -553,8 +405,6 @@ const RemoveFromCart = async (req, res) => {
     });
   }
 };
-
-
 
 module.exports = {
   AddToCart,
