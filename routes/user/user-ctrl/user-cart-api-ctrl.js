@@ -131,6 +131,7 @@ const AddToCart = async (req, res) => {
         if (exists) {
           exists.price = 0;
           exists.accessReason = "FREE_WITH_INSTRUMENT";
+          exists.linkedInstrumentId = productId;
           return;
         }
 
@@ -145,6 +146,7 @@ const AddToCart = async (req, res) => {
             : [],
           qty: 1,
           accessReason: "FREE_WITH_INSTRUMENT",
+          linkedInstrumentId: productId,
         });
         // }
       });
@@ -377,7 +379,8 @@ const RemoveFromCart = async (req, res) => {
             (item.productType === "instruments" &&
               item.productId.toString() === productId.toString()) ||
             (item.productType === "course_masters" &&
-              item.accessReason === "FREE_WITH_INSTRUMENT")
+              item.accessReason === "FREE_WITH_INSTRUMENT" &&
+              item.linkedInstrumentId?.toString() === productId.toString())
           )
       );
     } else {

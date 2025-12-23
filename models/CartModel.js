@@ -26,6 +26,11 @@ const CartItemSchema = new mongoose.Schema(
     },
     title: String,
     price: Number,
+    linkedInstrumentId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "instruments",
+      default: null
+    },
     accessReason: { type: String, default: "" },
     thumbnail: { type: [ImageSchema], default: null },
     qty: { type: Number, default: 1 }
