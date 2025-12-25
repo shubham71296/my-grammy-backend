@@ -106,8 +106,6 @@ const GetAllUserOrders = async (req, res) => {
     .populate("userId", "first_name last_name") // optional but recommended
     .lean();
 
-    console.log("orders",orders)
-
     const totalDataCount = await OrderModel.countDocuments(finalQuery);
 
     return res.status(200).json({
