@@ -193,6 +193,48 @@ const getAllCourses = async (req, res) => {
   }
 };
 
+// const getCourseById = async (req, res) => {
+//   try {
+//     const { id } = req.params;
+
+//     if (!id) {
+//       return res.status(400).json({
+//         error: "Course ID is required",
+//         msg: "failed",
+//         success: false,
+//         data: null,
+//       });
+//     }
+
+//     const course_data = await CourseMasterModel.findById(id)
+//       .populate({ path: "instrument", select: "instrument_title" })
+//       .lean();
+//     if (!course_data) {
+//       return res.status(404).json({
+//         error: "Course not found",
+//         msg: "failed",
+//         success: false,
+//         data: null,
+//       });
+//     }
+
+//     const lectures_data = await LectureModel.find({ course: id }).lean();
+//     const data = {
+//       course_data,
+//       lectures_data,
+//     };
+
+//     res.status(200).json({ error: "", msg: "success", success: true, data });
+//   } catch (err) {
+//     res.status(500).json({
+//       error: "internal server error",
+//       msg: "failed",
+//       success: false,
+//       data: [],
+//     });
+//   }
+// };
+
 const getCourseById = async (req, res) => {
   try {
     const { id } = req.params;
@@ -219,10 +261,44 @@ const getCourseById = async (req, res) => {
     }
 
     const lectures_data = await LectureModel.find({ course: id }).lean();
+    
+    let isPurchased = false;
+
+    // ==== Admin always has access ====
+    if (req.user?.role === "admin") {
+      isPurchased = true;
+    }
+
+    else if (req.user?.id) {
+      const purchasedCourseIds = await OrderModel.distinct(
+        "items.productId",
+        {
+          userId: req.user.id,
+          paymentStatus: "paid",
+          "items.productType": "course_masters",
+        }
+      );
+
+      const purchasedSet = new Set(
+        purchasedCourseIds.map(cid => cid.toString())
+      );
+
+      isPurchased = purchasedSet.has(id.toString());
+    }
+
     const data = {
-      course_data,
+      course_data: {
+        ...course_data,
+        isPurchased,
+      },
       lectures_data,
     };
+
+
+    // const data = {
+    //   course_data,
+    //   lectures_data,
+    // };
 
     res.status(200).json({ error: "", msg: "success", success: true, data });
   } catch (err) {

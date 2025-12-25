@@ -221,7 +221,9 @@ const GetFromCart = async (req, res) => {
         error: "",
         success: true,
         msg: "Cart is empty",
-        data: [],
+        data: {
+          items: []
+        },
       });
     }
 
