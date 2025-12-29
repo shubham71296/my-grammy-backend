@@ -15,8 +15,9 @@ router.post('/addlecture',auth, AdminCourseCtrl.AddLecture);
 router.post('/updatelecture/:id',auth, AdminCourseCtrl.UpdateLecture);
 
 // router.post('/allcourses', auth, AdminCourseCtrl.getAllCourses);
-router.post('/allcourses', AdminCourseCtrl.getAllCourses);
-router.get('/coursebyid/:id', AdminCourseCtrl.getCourseById);
+router.post('/allcourses',auth, AdminCourseCtrl.getAllCourses);
+router.post('/landingallcourses', AdminCourseCtrl.LandingGetAllCourses);
+router.get('/coursebyid/:id',auth, AdminCourseCtrl.getCourseById);
 
 router.delete("/deletelecture/:id",auth, AdminCourseCtrl.DeleteLecture);
 

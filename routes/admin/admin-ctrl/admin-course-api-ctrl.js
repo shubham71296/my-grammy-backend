@@ -193,6 +193,35 @@ const getAllCourses = async (req, res) => {
   }
 };
 
+const LandingGetAllCourses = async (req, res) => {
+  try {
+    const { query = {}, projection = { pwd: 0 }, options } = { ...req.body };
+
+    const courses = await CourseMasterModel.find(query, projection, options)
+      .populate("instrument", "instrument_title")
+      .lean();
+
+    const totalDataCount = await CourseMasterModel.countDocuments(query);
+
+
+    res.json({
+      error: "",
+      msg: "success",
+      success: true,
+      data: courses,
+      totalDataCount
+    });
+  } catch (err) {
+    console.log("error123", err);
+    res.status(500).json({
+      error: "internal server error",
+      msg: "failed",
+      success: false,
+      data: [],
+    });
+  }
+};
+
 // const getCourseById = async (req, res) => {
 //   try {
 //     const { id } = req.params;
@@ -687,4 +716,5 @@ module.exports = {
   DeleteLecture,
   getAllCourses,
   getCourseById,
+  LandingGetAllCourses
 };

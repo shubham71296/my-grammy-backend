@@ -138,6 +138,28 @@ const getAllInstruments = async (req, res) => {
   }
 };
 
+const GetLandingAllInstruments = async (req, res) => {
+  try {
+    const { query = {}, projection = { pwd: 0 }, options } = { ...req.body };
+    const data = await InstrumentModel.find(query, projection, options).lean();
+    const totalDataCount = await InstrumentModel.countDocuments(query);
+    res.json({
+      error: "",
+      msg: "success",
+      success: true,
+      data,
+      totalDataCount,
+    });
+  } catch (err) {
+    res.status(500).json({
+      error: "internal server error",
+      msg: "failed",
+      success: false,
+      data: [],
+    });
+  }
+};
+
 
 const getInstrumentById = async (req, res) => {
   try {
@@ -352,6 +374,7 @@ module.exports = {
   CheckInstrumentTitle,
   AddInstrument,
   getAllInstruments,
+  GetLandingAllInstruments,
   getInstrumentById,
   UpdateInstrument,
   DeleteInstrument,
