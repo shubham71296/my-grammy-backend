@@ -8,8 +8,14 @@ const CourseMasterModel = require("../../../models/CourseMasterModel");
 const LectureModel = require("../../../models/LectureModel");
 const { uploadBase64File } = require("../../../utils/s3Upload");
 const { PutObjectCommand, DeleteObjectCommand } = require("@aws-sdk/client-s3");
+const Razorpay = require("razorpay");
 const s3 = require("../../../config/aws");
 const { randomUUID } = require("crypto");
+
+const razorpay = new Razorpay({
+  key_id: process.env.RAZORPAY_KEY_ID,
+  key_secret: process.env.RAZORPAY_KEY_SECRET,
+});
 
 const getAllUsers = async (req, res) => {
   try {
@@ -127,8 +133,75 @@ const GetAllUserOrders = async (req, res) => {
 };
 
 
+const GetDashboardSummary = async (req, res) => {
+  try {
+    
+    const totalUsers = await UserModel.countDocuments({ role: "user" });
+    const totalCourses = await CourseMasterModel.countDocuments();
+    const totalInstruments = await InstrumentModel.countDocuments();
+    const totalOrders = await OrderModel.countDocuments();
+
+   
+    const paidOrders = await OrderModel.find({ paymentStatus: "paid" }).lean();
+    const totalPaidOrders = paidOrders.length;
+
+    const totalRevenue = paidOrders.reduce(
+      (sum, order) => sum + (order.amount || 0),
+      0
+    );
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const todaysRevenue = paidOrders
+      .filter((o) => new Date(o.createdAt) >= today)
+      .reduce((sum, order) => sum + (order.amount || 0), 0);
+
+    let razorpayCollected = 0;
+    try {
+      const razorpayPayments = await razorpay.payments.all({
+        status: "captured",
+        count: 100,
+      });
+
+      razorpayCollected =
+        razorpayPayments.items.reduce(
+          (sum, p) => sum + (p.amount || 0),
+          0
+        ) / 100; 
+    } catch (err) {
+      console.log("⚠️ Razorpay fetch failed:", err.message);
+    }
+
+    return res.status(200).json({
+      error:"",
+      success: true,
+      msg: "Dashboard summary fetched",
+      data: {
+        users: totalUsers,
+        courses: totalCourses,
+        instruments: totalInstruments,
+        orders: totalOrders,
+        paidOrders: totalPaidOrders,
+        revenue: totalRevenue,
+        todaysRevenue,
+        razorpayCollected,
+      },
+    });
+  } catch (err) {
+    console.log("Dashboard Error:", err);
+    return res.status(500).json({
+      error: "internal server error",
+      success: false,
+      msg: "Server error",
+    });
+  }
+};
+
+
 module.exports = {
   getAllUsers,
   DeleteUser,
-  GetAllUserOrders
+  GetAllUserOrders,
+  GetDashboardSummary
 };

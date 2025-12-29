@@ -6,8 +6,9 @@ const auth = require('../../middleware/auth');
 
 router.post('/checkinstrumenttitle',auth, AdminInstrumentCtrl.CheckInstrumentTitle);
 router.post('/addinstrument', auth, AdminInstrumentCtrl.AddInstrument);
-router.post('/allinstumnts', auth,  AdminInstrumentCtrl.getAllInstruments);
-router.get('/instumntbyid/:id', auth, AdminInstrumentCtrl.getInstrumentById);
+// router.post('/allinstumnts', auth,  AdminInstrumentCtrl.getAllInstruments);
+router.post('/allinstumnts',  AdminInstrumentCtrl.getAllInstruments);
+router.get('/instumntbyid/:id', AdminInstrumentCtrl.getInstrumentById);
 router.post('/updateinstrument/:id', auth, AdminInstrumentCtrl.UpdateInstrument);
 router.delete("/deleteinstrument/:id", auth, AdminInstrumentCtrl.DeleteInstrument);
 

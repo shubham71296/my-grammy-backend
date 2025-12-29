@@ -13,7 +13,7 @@ const CartModel = require("../models/CartModel");
  */
 router.post(
   "/razorpay",
-  express.raw({ type: "application/json" }),
+  // express.raw({ type: "application/json" }),
   async (req, res) => {
     try {
       const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
