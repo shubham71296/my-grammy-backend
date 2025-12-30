@@ -193,7 +193,7 @@ const getAllCourses = async (req, res) => {
   }
 };
 
-const LandingGetAllCourses = async (req, res) => {
+const GuestGetAllCourses = async (req, res) => {
   try {
     const { query = {}, projection = { pwd: 0 }, options } = { ...req.body };
 
@@ -319,6 +319,59 @@ const getCourseById = async (req, res) => {
       course_data: {
         ...course_data,
         isPurchased,
+      },
+      lectures_data,
+    };
+
+
+    // const data = {
+    //   course_data,
+    //   lectures_data,
+    // };
+
+    res.status(200).json({ error: "", msg: "success", success: true, data });
+  } catch (err) {
+    res.status(500).json({
+      error: "internal server error",
+      msg: "failed",
+      success: false,
+      data: [],
+    });
+  }
+};
+
+const GuestGetCourseById = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!id) {
+      return res.status(400).json({
+        error: "Course ID is required",
+        msg: "failed",
+        success: false,
+        data: null,
+      });
+    }
+
+    const course_data = await CourseMasterModel.findById(id)
+      .populate({ path: "instrument", select: "instrument_title" })
+      .lean();
+    if (!course_data) {
+      return res.status(404).json({
+        error: "Course not found",
+        msg: "failed",
+        success: false,
+        data: null,
+      });
+    }
+
+    const lectures_data = await LectureModel.find({ course: id }).lean();
+    
+    
+    const data = {
+      course_data: {
+        ...course_data,
+        isPurchased: false,
       },
       lectures_data,
     };
@@ -715,6 +768,7 @@ module.exports = {
   UpdateLecture,
   DeleteLecture,
   getAllCourses,
+  GuestGetAllCourses,
   getCourseById,
-  LandingGetAllCourses
+  GuestGetCourseById
 };

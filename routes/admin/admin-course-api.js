@@ -16,10 +16,11 @@ router.post('/updatelecture/:id',auth, AdminCourseCtrl.UpdateLecture);
 
 // router.post('/allcourses', auth, AdminCourseCtrl.getAllCourses);
 router.post('/allcourses',auth, AdminCourseCtrl.getAllCourses);
-router.post('/landingallcourses', AdminCourseCtrl.LandingGetAllCourses);
+router.post('/guestallcourses', AdminCourseCtrl.GuestGetAllCourses);
 router.get('/coursebyid/:id',auth, AdminCourseCtrl.getCourseById);
+router.get('/guestcoursebyid/:id', AdminCourseCtrl.GuestGetCourseById);
 
-router.delete("/deletelecture/:id",auth, AdminCourseCtrl.DeleteLecture);
+router.delete("/deletelecture/:id",auth, AdminCourseCtrl.DeleteLecture);  //GuestGetCourseById
 
 
 module.exports.router = router;

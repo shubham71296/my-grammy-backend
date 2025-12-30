@@ -8,10 +8,11 @@ router.post('/checkinstrumenttitle',auth, AdminInstrumentCtrl.CheckInstrumentTit
 router.post('/addinstrument', auth, AdminInstrumentCtrl.AddInstrument);
 // router.post('/allinstumnts', auth,  AdminInstrumentCtrl.getAllInstruments);
 router.post('/allinstumnts', auth,  AdminInstrumentCtrl.getAllInstruments);
-router.post('/landingallinstumnts',  AdminInstrumentCtrl.GetLandingAllInstruments);
+router.post('/guestallinstumnts',  AdminInstrumentCtrl.GetGuestAllInstruments);
 router.get('/instumntbyid/:id', auth,  AdminInstrumentCtrl.getInstrumentById);
+router.get('/guestinstumntbyid/:id',  AdminInstrumentCtrl.GuestGetInstrumentById);
 router.post('/updateinstrument/:id', auth, AdminInstrumentCtrl.UpdateInstrument);
 router.delete("/deleteinstrument/:id", auth, AdminInstrumentCtrl.DeleteInstrument);
 
 
-module.exports.router = router;  //GetLandingAllInstruments
+module.exports.router = router;  //GuestGetInstrumentById
