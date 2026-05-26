@@ -1,14 +1,12 @@
-const bcrypt = require("bcryptjs");
-const jwt = require("jsonwebtoken");
-const nodemailer = require("nodemailer");
-const InstrumentModel = require("../../../models/InstrumentModel");
 const CourseMasterModel = require("../../../models/CourseMasterModel");
 const LectureModel = require("../../../models/LectureModel");
-const OrderModel = require("../../../models/OrderModel");
-const { uploadBase64File } = require("../../../utils/s3Upload");
-const { PutObjectCommand, DeleteObjectCommand } = require("@aws-sdk/client-s3");
-const s3 = require("../../../config/aws");
-const { randomUUID } = require("crypto");
+const { listDocuments } = require("../../../utils/listDocuments");
+const { enrichCoursesWithPurchase } = require("../../../utils/coursePurchase");
+const { loadCourseDetail } = require("../../../utils/loadCourseDetail");
+const { deleteS3Keys } = require("../../../utils/s3Delete");
+const { parseNonNegativePrice } = require("../../../utils/parsePrice");
+const { diffRemovedMedia, collectS3Keys } = require("../../../utils/normalizeMedia");
+const { withTransaction } = require("../../../utils/withTransaction");
 
 
 const CheckCourseTitle = async (req, res) => {
@@ -77,10 +75,11 @@ const CreateCourse = async (req, res) => {
       return res.status(400).json({ error: "", success: false, msg: "Course title already exists", data: [] });
     }
     
-    const priceNum = Number(course_price);
-    if (Number.isNaN(priceNum) || priceNum < 0) {
-      return res.status(400).json({ error: "", success: false, msg: "Invalid course price", data: [] });
+    const priceParsed = parseNonNegativePrice(course_price, "course price");
+    if (!priceParsed.ok) {
+      return res.status(400).json({ error: "", success: false, msg: priceParsed.msg, data: [] });
     }
+    const priceNum = priceParsed.value;
  
     const createCourse = await CourseMasterModel.create({
       instrument,
@@ -107,231 +106,61 @@ const CreateCourse = async (req, res) => {
   }
 };
 
-const getAllCourses = async (req, res) => {
-  try {
-    const { query = {}, projection = { pwd: 0 }, options } = { ...req.body };
+const COURSE_QUERY_FIELDS = [
+  "course_title",
+  "course_price",
+  "course_description",
+  "instrument",
+  "createdAt",
+  "updatedAt",
+];
 
-    // if (query.instrument && query.instrument.$regex) {
-    //   const regex = query.instrument;
+const getAllCourses = (req, res) =>
+  listDocuments({
+    Model: CourseMasterModel,
+    req,
+    res,
+    allowedQueryFields: COURSE_QUERY_FIELDS,
+    populate: { path: "instrument", select: "instrument_title" },
+    transform: (courses, request) => enrichCoursesWithPurchase(courses, request.user),
+  });
 
-    //   const instruments = await InstrumentModel.find(
-    //     { instrument_title: regex },
-    //     "_id"
-    //   ).lean();
+const GuestGetAllCourses = (req, res) =>
+  listDocuments({
+    Model: CourseMasterModel,
+    req,
+    res,
+    allowedQueryFields: COURSE_QUERY_FIELDS,
+    populate: { path: "instrument", select: "instrument_title" },
+  });
 
-    //   const instrumentIds = instruments.map((inst) => inst._id);
-
-    //   query.instrument = { $in: instrumentIds };
-    // }
-
-    const courses = await CourseMasterModel.find(query, projection, options)
-      .populate("instrument", "instrument_title")
-      .lean();
-
-    const totalDataCount = await CourseMasterModel.countDocuments(query);
-
-    if (req.user?.role === "admin") {
-      return res.json({
-        error:"",
-        success: true,
-        msg: "success",
-        data: courses.map(c => ({
-          ...c,
-          isPurchased: true, // admin has full access
-        })),
-        totalDataCount,
-      });
-    }
-
-    if (!req.user?.id) {
-      return res.json({
-        error:"",
-        success: true,
-        msg: "success",
-        data: courses.map(c => ({
-          ...c,
-          isPurchased: false,
-        })),
-        totalDataCount,
-      });
-    }
-
-    const purchasedCourseIds = await OrderModel.distinct(
-      "items.productId",
-      {
-        userId: req.user.id,
-        paymentStatus: "paid",
-        "items.productType": "course_masters",
-      }
-    );
-
-    const purchasedSet = new Set(
-      purchasedCourseIds.map(id => id.toString())
-    );
-
-    const finalData = courses.map(course => ({
-      ...course,
-      isPurchased: purchasedSet.has(course._id.toString()),
-    }));
-
-
-    res.json({
-      error: "",
-      msg: "success",
-      success: true,
-      data: finalData,
-      totalDataCount
-    });
-  } catch (err) {
-    console.log("error123", err);
-    res.status(500).json({
-      error: "internal server error",
+const sendCourseDetail = async (req, res, user) => {
+  const { id } = req.params;
+  if (!id) {
+    return res.status(400).json({
+      error: "Course ID is required",
       msg: "failed",
       success: false,
-      data: [],
+      data: null,
     });
   }
-};
-
-const GuestGetAllCourses = async (req, res) => {
-  try {
-    const { query = {}, projection = { pwd: 0 }, options } = { ...req.body };
-
-    const courses = await CourseMasterModel.find(query, projection, options)
-      .populate("instrument", "instrument_title")
-      .lean();
-
-    const totalDataCount = await CourseMasterModel.countDocuments(query);
-
-
-    res.json({
-      error: "",
-      msg: "success",
-      success: true,
-      data: courses,
-      totalDataCount
-    });
-  } catch (err) {
-    console.log("error123", err);
-    res.status(500).json({
-      error: "internal server error",
+  const data = await loadCourseDetail(id, user);
+  if (!data) {
+    return res.status(404).json({
+      error: "Course not found",
       msg: "failed",
       success: false,
-      data: [],
+      data: null,
     });
   }
+  return res.status(200).json({ error: "", msg: "success", success: true, data });
 };
-
-// const getCourseById = async (req, res) => {
-//   try {
-//     const { id } = req.params;
-
-//     if (!id) {
-//       return res.status(400).json({
-//         error: "Course ID is required",
-//         msg: "failed",
-//         success: false,
-//         data: null,
-//       });
-//     }
-
-//     const course_data = await CourseMasterModel.findById(id)
-//       .populate({ path: "instrument", select: "instrument_title" })
-//       .lean();
-//     if (!course_data) {
-//       return res.status(404).json({
-//         error: "Course not found",
-//         msg: "failed",
-//         success: false,
-//         data: null,
-//       });
-//     }
-
-//     const lectures_data = await LectureModel.find({ course: id }).lean();
-//     const data = {
-//       course_data,
-//       lectures_data,
-//     };
-
-//     res.status(200).json({ error: "", msg: "success", success: true, data });
-//   } catch (err) {
-//     res.status(500).json({
-//       error: "internal server error",
-//       msg: "failed",
-//       success: false,
-//       data: [],
-//     });
-//   }
-// };
 
 const getCourseById = async (req, res) => {
   try {
-    const { id } = req.params;
-
-    if (!id) {
-      return res.status(400).json({
-        error: "Course ID is required",
-        msg: "failed",
-        success: false,
-        data: null,
-      });
-    }
-
-    const course_data = await CourseMasterModel.findById(id)
-      .populate({ path: "instrument", select: "instrument_title" })
-      .lean();
-    if (!course_data) {
-      return res.status(404).json({
-        error: "Course not found",
-        msg: "failed",
-        success: false,
-        data: null,
-      });
-    }
-
-    const lectures_data = await LectureModel.find({ course: id }).lean();
-    
-    let isPurchased = false;
-
-    // ==== Admin always has access ====
-    if (req.user?.role === "admin") {
-      isPurchased = true;
-    }
-
-    else if (req.user?.id) {
-      const purchasedCourseIds = await OrderModel.distinct(
-        "items.productId",
-        {
-          userId: req.user.id,
-          paymentStatus: "paid",
-          "items.productType": "course_masters",
-        }
-      );
-
-      const purchasedSet = new Set(
-        purchasedCourseIds.map(cid => cid.toString())
-      );
-
-      isPurchased = purchasedSet.has(id.toString());
-    }
-
-    const data = {
-      course_data: {
-        ...course_data,
-        isPurchased,
-      },
-      lectures_data,
-    };
-
-
-    // const data = {
-    //   course_data,
-    //   lectures_data,
-    // };
-
-    res.status(200).json({ error: "", msg: "success", success: true, data });
+    return await sendCourseDetail(req, res, req.user);
   } catch (err) {
-    res.status(500).json({
+    return res.status(500).json({
       error: "internal server error",
       msg: "failed",
       success: false,
@@ -342,49 +171,9 @@ const getCourseById = async (req, res) => {
 
 const GuestGetCourseById = async (req, res) => {
   try {
-    const { id } = req.params;
-
-    if (!id) {
-      return res.status(400).json({
-        error: "Course ID is required",
-        msg: "failed",
-        success: false,
-        data: null,
-      });
-    }
-
-    const course_data = await CourseMasterModel.findById(id)
-      .populate({ path: "instrument", select: "instrument_title" })
-      .lean();
-    if (!course_data) {
-      return res.status(404).json({
-        error: "Course not found",
-        msg: "failed",
-        success: false,
-        data: null,
-      });
-    }
-
-    const lectures_data = await LectureModel.find({ course: id }).lean();
-    
-    
-    const data = {
-      course_data: {
-        ...course_data,
-        isPurchased: false,
-      },
-      lectures_data,
-    };
-
-
-    // const data = {
-    //   course_data,
-    //   lectures_data,
-    // };
-
-    res.status(200).json({ error: "", msg: "success", success: true, data });
+    return await sendCourseDetail(req, res, null);
   } catch (err) {
-    res.status(500).json({
+    return res.status(500).json({
       error: "internal server error",
       msg: "failed",
       success: false,
@@ -430,32 +219,12 @@ const UpdateCourse = async (req, res) => {
       });
     }
 
-    const oldImagesFlat = existingData.thumbnail_image
-      .map((img) => {
-        return {
-          key: img.key,
-          url: img.url,
-          originalName: img.originalName || img.key.split("/").pop(),
-          mimeType: img.mimeType || "image/jpeg",
-          size: img.size || 0,
-        };
-      })
-      .filter(Boolean);
-
-    const removedImages = oldImagesFlat.filter(
-      (img) => !existing_images.some((e) => e.key === img.key)
+    const removedImages = diffRemovedMedia(
+      existingData.thumbnail_image,
+      existing_images
     );
 
-    for (const img of removedImages) {
-      if (!img.key) continue;
-
-      await s3.send(
-        new DeleteObjectCommand({
-          Bucket: process.env.AWS_BUCKET_NAME,
-          Key: img.key,
-        })
-      );
-    }
+    await deleteS3Keys(removedImages.map((img) => img.key));
 
     const finalImages = [...existing_images, ...new_images];
     const updatePayload = {
@@ -465,8 +234,18 @@ const UpdateCourse = async (req, res) => {
       updatePayload.course_title = course_title.trim();
     if (course_description !== undefined)
       updatePayload.course_description = course_description;
-    if (course_price !== undefined)
-      updatePayload.course_price = Number(course_price);
+    if (course_price !== undefined) {
+      const priceParsed = parseNonNegativePrice(course_price, "course price");
+      if (!priceParsed.ok) {
+        return res.status(400).json({
+          error: "",
+          success: false,
+          msg: priceParsed.msg,
+          data: [],
+        });
+      }
+      updatePayload.course_price = priceParsed.value;
+    }
 
     const updatedCourse = await CourseMasterModel.findByIdAndUpdate(
       courseId,
@@ -508,56 +287,18 @@ const DeleteCourse = async (req, res) => {
       });
     }
 
-    const images = Array.isArray(course.thumbnail_image)
-      ? course.thumbnail_image
-      : [];
+    const lectures = await LectureModel.find({ course: courseId }).lean();
+    const s3Keys = [
+      ...collectS3Keys(course.thumbnail_image || []),
+      ...lectures.flatMap((lec) => collectS3Keys(lec.lecture_video || [])),
+    ];
+    await withTransaction(async (session) => {
+      const opts = session ? { session } : {};
+      await LectureModel.deleteMany({ course: courseId }, opts);
+      await CourseMasterModel.findByIdAndDelete(courseId, opts);
+    });
 
-    const flatImages = images
-      .map((img) => {
-        return {
-          key: img.key,
-        };
-      })
-      .filter(Boolean); 
-
-    for (const img of flatImages) {
-      try {
-        await s3.send(
-          new DeleteObjectCommand({
-            Bucket: process.env.AWS_BUCKET_NAME,
-            Key: img.key,
-          })
-        );
-        console.log("Deleted from S3:", img.key);
-      } catch (s3Error) {
-        console.log("⚠ S3 Delete Failed For:", img.key, s3Error);
-      }
-    }
-
-    const lectures = await LectureModel.find({
-      course: courseId,
-    }).lean();
-
-    for (const lecture of lectures) {
-      if (!Array.isArray(lecture.lecture_video)) continue;
-      for (const video of lecture.lecture_video) {
-        if (!video?.key) continue;
-        try {
-          await s3.send(
-            new DeleteObjectCommand({
-              Bucket: process.env.AWS_BUCKET_NAME,
-              Key: video.key,
-            })
-          );
-          console.log("Deleted Lecture Video:", video.key);
-        } catch (err) {
-          console.log("⚠ Failed deleting lecture video:", video.key, err);
-        }
-      }
-    }
-    
-   await LectureModel.deleteMany({ course: courseId });
-   await CourseMasterModel.findByIdAndDelete(courseId);
+    await deleteS3Keys(s3Keys);
 
     return res.status(200).json({
       error: "",
@@ -583,6 +324,7 @@ const AddLecture = async (req, res) => {
 
     const existingLectureTitle = await LectureModel.findOne({
       lecture_title: lecture_title.trim(),
+      course: course_id,
     }).lean();
 
     if (existingLectureTitle) {
@@ -623,10 +365,21 @@ const UpdateLecture = async (req, res) => {
   try {
     const lectureId = req.params.id;
     const { lecture_title, new_videos, existing_videos } = req.body;
+    const existingData = await LectureModel.findById(lectureId);
+    if (!existingData) {
+      return res.status(404).json({
+        error: "",
+        msg: "Lecture not found",
+        success: false,
+        data: [],
+      });
+    }
+
     if (lecture_title) {
       const duplicate = await LectureModel.findOne({
         lecture_title: lecture_title.trim(),
-        _id: { $ne: lectureId }, // <-- exclude current record
+        course: existingData.course,
+        _id: { $ne: lectureId },
       }).lean();
 
       if (duplicate) {
@@ -639,42 +392,12 @@ const UpdateLecture = async (req, res) => {
       }
     }
 
-    const existingData = await LectureModel.findById(lectureId);
-    if (!existingData) {
-      return res.status(404).json({
-        error: "",
-        msg: "Lecture not found",
-        success: false,
-        data: [],
-      });
-    }
-
-    const oldVideosFlat = existingData.lecture_video
-      .map((video) => {
-        return {
-          key: video.key,
-          url: video.url,
-          originalName: video.originalName || video.key.split("/").pop(),
-          mimeType: video.mimeType || "",
-          size: video.size || 0,
-        };
-      })
-      .filter(Boolean);
-
-    const removedVideos = oldVideosFlat.filter(
-      (video) => !existing_videos.some((e) => e.key === video.key),
+    const removedVideos = diffRemovedMedia(
+      existingData.lecture_video,
+      existing_videos
     );
 
-    for (const video of removedVideos) {
-      if (!video.key) continue;
-
-      await s3.send(
-        new DeleteObjectCommand({
-          Bucket: process.env.AWS_BUCKET_NAME,
-          Key: video.key,
-        }),
-      );
-    }
+    await deleteS3Keys(removedVideos.map((video) => video.key));
 
     const finalVideos = [...existing_videos, ...new_videos];
 
@@ -718,28 +441,9 @@ const DeleteLecture = async (req, res) => {
       });
     }
 
-    const lectureVideos = lecture.lecture_video.map((video) => {
-        return {
-          key: video.key,
-        };
-      })
-      .filter(Boolean); 
+    await deleteS3Keys(collectS3Keys(lecture.lecture_video || []));
 
-    for (const video of lectureVideos) {
-      try {
-        await s3.send(
-          new DeleteObjectCommand({
-            Bucket: process.env.AWS_BUCKET_NAME,
-            Key: video.key,
-          })
-        );
-        // console.log("Deleted from S3:", video.key);
-      } catch (s3Error) {
-        console.log("⚠ S3 Delete Failed For:", video.key, s3Error);
-      }
-    }
-
-   await LectureModel.findByIdAndDelete(lectureId);
+    await LectureModel.findByIdAndDelete(lectureId);
 
     return res.status(200).json({
       error: "",

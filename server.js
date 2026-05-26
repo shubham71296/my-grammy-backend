@@ -1,38 +1,50 @@
 
-require('dotenv').config();
+const { validateEnv } = require('./config/env');
+validateEnv();
+
 const cors = require('cors');
-const mongoose = require('mongoose');
 const express = require('express');
 const connectDB = require('./config/db');
 
 const app = express();
 
-const allowedOrigins = [
+const productionOrigins = [
   'https://grammymusicindia.in',
-  'https://www.grammymusicindia.in'
+  'https://www.grammymusicindia.in',
 ];
 
+const envOrigins = (process.env.CORS_ORIGIN || process.env.FRONTEND_URL || '')
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
+
+const allowedOrigins = [...new Set([...productionOrigins, ...envOrigins])];
+
+const isLocalDevOrigin = (origin) => {
+  try {
+    const { hostname, protocol } = new URL(origin);
+    if (!['http:', 'https:'].includes(protocol)) return false;
+    return hostname === 'localhost' || hostname === '127.0.0.1';
+  } catch {
+    return false;
+  }
+};
+
+const isDev = process.env.NODE_ENV !== 'production';
+
 app.use(cors({
-  origin: function(origin, callback){
-    if(!origin) return callback(null, true); // allow curl/postman etc.
-    if(allowedOrigins.indexOf(origin) === -1){
-      return callback(new Error('CORS not allowed'), false);
-    }
-    return callback(null, true);
+  origin(origin, callback) {
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    if (isDev && isLocalDevOrigin(origin)) return callback(null, true);
+    console.warn('CORS blocked origin:', origin);
+    return callback(new Error('CORS not allowed'), false);
   },
   credentials: true,
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-  exposedHeaders: ['x-rtb-fingerprint-id'], // lets frontend read Razorpay header
-  optionsSuccessStatus: 200
+  exposedHeaders: ['x-rtb-fingerprint-id'],
+  optionsSuccessStatus: 200,
 }));
-
-
-// app.use(cors({
-//     origin: '*',
-//     optionsSuccessStatus: 200,
-//     allowedHeaders: ['Content-Type', 'Authorization'],
-//     credentials: true
-// }));
 
 
 app.use(
@@ -42,14 +54,19 @@ app.use(
 );
 
 
-app.use(express.json({ limit: '50mb' }));
+app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
-// app.use(express.raw({ type: 'application/octet-stream', limit: '100mb' }));
 
 app.use('/api', require('./routes'));
 
-connectDB();
+const startServer = async () => {
+  await connectDB();
+  app.listen(process.env.PORT, () => console.log(`Server is running on ${process.env.PORT}`));
+};
 
-app.listen(process.env.PORT, () => console.log(`Server is running on ${process.env.PORT}`));
+startServer().catch((err) => {
+  console.error("Failed to start server:", err);
+  process.exit(1);
+});
 
 module.exports = app;

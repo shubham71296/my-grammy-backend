@@ -4,6 +4,6 @@ const UserPaymentApiCtrl = require("./user-ctrl/user-payment-api-ctrl");
 const auth = require('../../middleware/auth');
 
 router.post('/create-checkout-session', auth, UserPaymentApiCtrl.CreateCheckoutSession);
-
+router.post('/verify-payment', auth, UserPaymentApiCtrl.VerifyPayment);
 
 module.exports.router = router;

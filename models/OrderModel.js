@@ -28,4 +28,16 @@ const OrderSchema = new mongoose.Schema({
   paymentStatus: { type: String, enum: ["pending", "paid", "cancelled", "failed"], default: "pending" }
 }, { timestamps: true });
 
+OrderSchema.index({ userId: 1, paymentStatus: 1 });
+OrderSchema.index({ userId: 1, paymentStatus: 1, "items.productId": 1 });
+OrderSchema.index({ razorpayOrderId: 1 }, { sparse: true });
+OrderSchema.index({ createdAt: -1 });
+OrderSchema.index(
+  { userId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { paymentStatus: "pending" },
+  }
+);
+
 module.exports = mongoose.model("orders", OrderSchema);

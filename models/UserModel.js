@@ -17,6 +17,9 @@ const UserSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+UserSchema.index({ em: 1 }, { unique: true, sparse: true });
+UserSchema.index({ role: 1 });
+
 module.exports = mongoose.model("users", UserSchema);
 
 

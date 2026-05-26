@@ -1,14 +1,6 @@
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-const nodemailer = require("nodemailer");
-const InstrumentModel = require("../../../models/InstrumentModel");
-const CourseMasterModel = require("../../../models/CourseMasterModel");
-const LectureModel = require("../../../models/LectureModel");
 const UserModel = require("../../../models/UserModel");
-const { uploadBase64File } = require("../../../utils/s3Upload");
-const { PutObjectCommand, DeleteObjectCommand } = require("@aws-sdk/client-s3");
-const s3 = require("../../../config/aws");
-const { randomUUID } = require("crypto");
 const sendEmail = require("../../../utils/sendEmail");
 
 const Signup = async (req, res) => {
@@ -33,11 +25,13 @@ const Signup = async (req, res) => {
       pwd: hashedPwd,
     });
 
+    const safeUser = await UserModel.findById(newUser._id).select("-pwd").lean();
+
     return res.status(200).json({
       error: "",
       msg: "Signup success",
       success: true,
-      data: newUser,
+      data: safeUser,
     });
   } catch (err) {
     console.log("error", err);
@@ -100,7 +94,7 @@ const Signin = async (req, res) => {
 const GetCurrentUser = async (req, res) => {
   try {
     const user_id = req.user.id;
-    const profile = await UserModel.findOne({ _id: user_id });
+    const profile = await UserModel.findOne({ _id: user_id }).select("-pwd -reset_pwd_otp -reset_password_token").lean();
     if (!profile) {
       return res.status(404).json({
         error: "",
@@ -158,7 +152,7 @@ const UserSendOtpToEmail = async (req, res) => {
       });
     }
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    user.reset_pwd_otp = otp;
+    user.reset_pwd_otp = await bcrypt.hash(otp, 10);
     user.reset_password_expires = Date.now() + 10 * 60 * 1000; // 10 mins
     await user.save();
 
@@ -345,8 +339,8 @@ const UserVerifyOtp = async (req, res) => {
       });
     }
 
-    // 5️⃣ Match OTP
-    if (user.reset_pwd_otp !== reset_pwd_otp) {
+    const otpValid = await bcrypt.compare(String(reset_pwd_otp), user.reset_pwd_otp || "");
+    if (!otpValid) {
       return res.status(400).json({
         error: "",
         success: false,

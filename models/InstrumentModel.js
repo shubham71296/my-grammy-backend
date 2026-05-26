@@ -21,4 +21,7 @@ const InstrumentSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+InstrumentSchema.index({ instrument_title: 1 });
+InstrumentSchema.index({ createdAt: -1 });
+
 module.exports = mongoose.model("instruments", InstrumentSchema);

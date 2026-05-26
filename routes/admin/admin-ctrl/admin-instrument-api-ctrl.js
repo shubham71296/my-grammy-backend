@@ -1,13 +1,21 @@
-const bcrypt = require("bcryptjs");
-const jwt = require("jsonwebtoken");
-const nodemailer = require("nodemailer");
 const InstrumentModel = require("../../../models/InstrumentModel");
 const CourseMasterModel = require("../../../models/CourseMasterModel");
 const LectureModel = require("../../../models/LectureModel");
-const { uploadBase64File } = require("../../../utils/s3Upload");
-const { PutObjectCommand, DeleteObjectCommand } = require("@aws-sdk/client-s3");
-const s3 = require("../../../config/aws");
-const { randomUUID } = require("crypto");
+const { deleteS3Keys } = require("../../../utils/s3Delete");
+const { listDocuments } = require("../../../utils/listDocuments");
+const { sendSuccess, sendError } = require("../../../utils/apiResponse");
+const { parseNonNegativePrice } = require("../../../utils/parsePrice");
+const { diffRemovedMedia } = require("../../../utils/normalizeMedia");
+const { collectInstrumentCascadeKeys } = require("../../../utils/cascadeDeleteInstrument");
+const { withTransaction } = require("../../../utils/withTransaction");
+
+const INSTRUMENT_QUERY_FIELDS = [
+  "instrument_title",
+  "instrument_price",
+  "instrurment_description",
+  "createdAt",
+  "updatedAt",
+];
 
 
 const CheckInstrumentTitle = async (req, res) => {
@@ -88,8 +96,11 @@ const AddInstrument = async (req, res) => {
        return res.status(400).json({ error: "", success: false, msg: "Instrument title already exists", data: [] });
      }
 
-     const priceNum = Number(instrument_price);
-     if (Number.isNaN(priceNum) || priceNum < 0) return res.status(400).json({ error: "", success:false, msg:'Invalid price', data: [] });
+     const priceParsed = parseNonNegativePrice(instrument_price, "instrument price");
+     if (!priceParsed.ok) {
+       return res.status(400).json({ error: "", success: false, msg: priceParsed.msg, data: [] });
+     }
+     const priceNum = priceParsed.value;
  
      const newInstrument = await InstrumentModel.create({
        instrument_title,
@@ -116,118 +127,31 @@ const AddInstrument = async (req, res) => {
 };
 
 
-const getAllInstruments = async (req, res) => {
-  try {
-    const { query = {}, projection = { pwd: 0 }, options } = { ...req.body };
-    const data = await InstrumentModel.find(query, projection, options).lean();
-    const totalDataCount = await InstrumentModel.countDocuments(query);
-    res.json({
-      error: "",
-      msg: "success",
-      success: true,
-      data,
-      totalDataCount,
-    });
-  } catch (err) {
-    res.status(500).json({
-      error: "internal server error",
-      msg: "failed",
-      success: false,
-      data: [],
-    });
-  }
-};
+const getAllInstruments = (req, res) =>
+  listDocuments({
+    Model: InstrumentModel,
+    req,
+    res,
+    allowedQueryFields: INSTRUMENT_QUERY_FIELDS,
+  });
 
-const GetGuestAllInstruments = async (req, res) => {
-  try {
-    const { query = {}, projection = { pwd: 0 }, options } = { ...req.body };
-    const data = await InstrumentModel.find(query, projection, options).lean();
-    const totalDataCount = await InstrumentModel.countDocuments(query);
-    res.json({
-      error: "",
-      msg: "success",
-      success: true,
-      data,
-      totalDataCount,
-    });
-  } catch (err) {
-    res.status(500).json({
-      error: "internal server error",
-      msg: "failed",
-      success: false,
-      data: [],
-    });
-  }
-};
-
+const GetGuestAllInstruments = getAllInstruments;
 
 const getInstrumentById = async (req, res) => {
   try {
     const { id } = req.params;
-
-    if (!id) {
-      return res.status(400).json({
-        error: "Instrument ID is required",
-        msg: "failed",
-        success: false,
-        data: null,
-      });
-    }
+    if (!id) return sendError(res, { msg: "Instrument ID is required", status: 400, error: "Instrument ID is required", data: null });
 
     const data = await InstrumentModel.findById(id).lean();
+    if (!data) return sendError(res, { msg: "Instrument not found", status: 404, error: "Instrument not found", data: null });
 
-    if (!data) {
-      return res.status(404).json({
-        error: "Instrument not found",
-        msg: "failed",
-        success: false,
-        data: null,
-      });
-    }
-    res.status(200).json({ error: "", msg: "success", success: true, data });
+    return sendSuccess(res, { data });
   } catch (err) {
-    res.status(500).json({
-      error: "internal server error",
-      msg: "failed",
-      success: false,
-      data: [],
-    });
+    return sendError(res, { status: 500 });
   }
 };
 
-const GuestGetInstrumentById = async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    if (!id) {
-      return res.status(400).json({
-        error: "Instrument ID is required",
-        msg: "failed",
-        success: false,
-        data: null,
-      });
-    }
-
-    const data = await InstrumentModel.findById(id).lean();
-
-    if (!data) {
-      return res.status(404).json({
-        error: "Instrument not found",
-        msg: "failed",
-        success: false,
-        data: null,
-      });
-    }
-    res.status(200).json({ error: "", msg: "success", success: true, data });
-  } catch (err) {
-    res.status(500).json({
-      error: "internal server error",
-      msg: "failed",
-      success: false,
-      data: [],
-    });
-  }
-};
+const GuestGetInstrumentById = getInstrumentById;
 
 
 const UpdateInstrument = async (req, res) => {
@@ -267,36 +191,12 @@ const UpdateInstrument = async (req, res) => {
       });
     }
 
-    const oldImagesFlat = existingData.instrument_images
-      .map((img) => {
-        const fileObj = Array.isArray(img) ? img[0] : img;
-
-        if (!fileObj || !fileObj.key) return null;
-
-        return {
-          key: fileObj.key,
-          url: fileObj.url,
-          originalName: fileObj.originalName || fileObj.key.split("/").pop(),
-          mimeType: fileObj.mimeType || "image/jpeg",
-          size: fileObj.size || 0,
-        };
-      })
-      .filter(Boolean);
-
-    const removedImages = oldImagesFlat.filter(
-      (img) => !existing_images.some((e) => e.key === img.key)
+    const removedImages = diffRemovedMedia(
+      existingData.instrument_images,
+      existing_images
     );
 
-    for (const img of removedImages) {
-      if (!img.key) continue;
-
-      await s3.send(
-        new DeleteObjectCommand({
-          Bucket: process.env.AWS_BUCKET_NAME,
-          Key: img.key,
-        })
-      );
-    }
+    await deleteS3Keys(removedImages.map((img) => img.key));
 
     const finalImages = [...existing_images, ...new_images];
     
@@ -307,16 +207,16 @@ const UpdateInstrument = async (req, res) => {
     if (instrument_title !== undefined) updatePayload.instrument_title = instrument_title?.trim();
     if (instrurment_description !== undefined) updatePayload.instrurment_description = instrurment_description;
     if (instrument_price !== undefined) {
-      const priceNum = Number(instrument_price);
-      if (Number.isNaN(priceNum) || priceNum < 0) {
+      const priceParsed = parseNonNegativePrice(instrument_price, "instrument price");
+      if (!priceParsed.ok) {
         return res.status(400).json({
           error: "",
           success: false,
-          msg: "Invalid instrument price",
+          msg: priceParsed.msg,
           data: [],
         });
       }
-      updatePayload.instrument_price = priceNum;
+      updatePayload.instrument_price = priceParsed.value;
     }
     const updatedInstrument = await InstrumentModel.findByIdAndUpdate(instrumentId, updatePayload, { new: true });
 
@@ -354,44 +254,23 @@ const DeleteInstrument = async (req, res) => {
       });
     }
 
-    const images = Array.isArray(instrument.instrument_images)
-      ? instrument.instrument_images
-      : [];
+    const { courseIds, keys } = await collectInstrumentCascadeKeys(instrument);
 
-    const flatImages = images
-      .map((img) => {
-        const fileObj = Array.isArray(img) ? img[0] : img;
-        if (!fileObj || !fileObj.key) return null;
+    await withTransaction(async (session) => {
+      const opts = session ? { session } : {};
+      await LectureModel.deleteMany({ course: { $in: courseIds } }, opts);
+      await CourseMasterModel.deleteMany({ instrument: instrumentId }, opts);
+      await InstrumentModel.findByIdAndDelete(instrumentId, opts);
+    });
 
-        return {
-          key: fileObj.key,
-        };
-      })
-      .filter(Boolean); 
-
-    for (const img of flatImages) {
-      try {
-        await s3.send(
-          new DeleteObjectCommand({
-            Bucket: process.env.AWS_BUCKET_NAME,
-            Key: img.key,
-          })
-        );
-        console.log("Deleted from S3:", img.key);
-      } catch (s3Error) {
-        console.log("⚠ S3 Delete Failed For:", img.key, s3Error);
-      }
-    }
-
-    await InstrumentModel.findByIdAndDelete(instrumentId);
+    await deleteS3Keys(keys);
 
     return res.status(200).json({
       error: "",
       success: true,
-      msg: "Instrument deleted successfully",
+      msg: "Instrument and related courses deleted successfully",
       data: [],
     });
-    
   } catch (err) {
     console.log("Error deleting instrument:", err);
     return res.status(500).json({

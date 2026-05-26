@@ -25,4 +25,8 @@ const CourseMasterSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+CourseMasterSchema.index({ course_title: 1 }, { unique: true, sparse: true });
+CourseMasterSchema.index({ instrument: 1 });
+CourseMasterSchema.index({ createdAt: -1 });
+
 module.exports = mongoose.model("course_masters", CourseMasterSchema);

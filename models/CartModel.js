@@ -22,7 +22,7 @@ const CartItemSchema = new mongoose.Schema(
     productId: {
       type: mongoose.Schema.Types.ObjectId,
       required: true,
-      refPath: "items.productType"
+      refPath: "productType"
     },
     title: String,
     price: Number,

@@ -32,6 +32,17 @@ router.get("/stream", auth, async (req, res) => {
       });
     }
 
+    const videoKeys = (lecture.lecture_video || [])
+      .map((v) => v?.key)
+      .filter(Boolean);
+
+    if (!videoKeys.includes(key)) {
+      return res.status(403).json({
+        success: false,
+        msg: "Video key does not match this lecture",
+      });
+    }
+
     if (req.user.role !== "admin") {
       const hasAccess = await checkUserPurchasedCourse(
         req.user.id,
