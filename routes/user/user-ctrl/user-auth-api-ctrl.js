@@ -270,10 +270,14 @@ const UserSendOtpToEmail = async (req, res) => {
     });
 
     if (!emailResponse.success) {
+      console.error("Password reset email failed:", emailResponse.message);
       return res.status(500).json({
         error: "Email sending failed",
         success: false,
-        msg: "Failed to send email",
+        msg:
+          emailResponse.responseCode === 535
+            ? "Email service credentials are invalid. Please contact support."
+            : "Failed to send email",
         data: [],
       });
     }
